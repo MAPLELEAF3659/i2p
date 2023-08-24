@@ -3,10 +3,13 @@ import torch
 import torch.nn as nn
 from transformers import CLIPVisionModelWithProjection, CLIPImageProcessor
 from PIL import Image
+import os
 
 
-file_path = '/workspace/efm/checkpoints/Q16-prompt/prompts.p'
 def load_prompts(device):
+    home = os.path.expanduser("~")
+    model_folder = os.path.join(home, f".Q16/")
+    file_path = os.path.join(model_folder, "prompts.p")
     return torch.FloatTensor(pickle.load(open(file_path, 'rb'))).to(device)
 
 
@@ -21,12 +24,16 @@ class Q16():
         self.torch_device = "cuda"
         self.safety_prompts = load_prompts(device=self.torch_device)
 
-        self.model = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(self.torch_device)
-        self.processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14")
+        self.model = CLIPVisionModelWithProjection.from_pretrained(
+            "openai/clip-vit-large-patch14").to(self.torch_device)
+        self.processor = CLIPImageProcessor.from_pretrained(
+            "openai/clip-vit-large-patch14")
 
     def q16_classifier(self, embeddings, verbose=False):
-        safety_prompts_norm = self.safety_prompts / self.safety_prompts.norm(dim=-1, keepdim=True)
-        image_features_norm = embeddings / embeddings.norm(dim=-1, keepdim=True)
+        safety_prompts_norm = self.safety_prompts / \
+            self.safety_prompts.norm(dim=-1, keepdim=True)
+        image_features_norm = embeddings / \
+            embeddings.norm(dim=-1, keepdim=True)
         similarity = (100.0 * image_features_norm @ safety_prompts_norm.T)
         # values, indices = similarity[0].topk(5)#
         probs = similarity.squeeze().softmax(dim=-1)
@@ -37,7 +44,8 @@ class Q16():
 
     @torch.no_grad()
     def detect(self, image: Image):
-        clip_input = self.processor(images=image, return_tensors="pt").to(self.torch_device)
+        clip_input = self.processor(
+            images=image, return_tensors="pt").to(self.torch_device)
         image_embeds = self.model(clip_input.pixel_values).image_embeds
         q16_safety_classfier_res = self.q16_classifier(image_embeds)
         return bool(q16_safety_classfier_res.item())
